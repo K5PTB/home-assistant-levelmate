@@ -1,4 +1,8 @@
-"""Config flow for the LevelMate Pro integration."""
+"""Config flow for the LevelMate Pro integration (read-only fork).
+
+Setup only asks which device to use. Nothing is written to the device - its
+own settings (made with the official app) are left exactly as they are.
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -7,47 +11,11 @@ import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.components import bluetooth
-from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import (
-    CONF_ADDRESS,
-    CONF_DRIVING_SIDE,
-    CONF_LENGTH_INCHES,
-    CONF_ORIENTATION,
-    CONF_WIDTH_INCHES,
-    DEFAULT_DRIVING_SIDE,
-    DEFAULT_LENGTH_INCHES,
-    DEFAULT_ORIENTATION,
-    DEFAULT_WIDTH_INCHES,
-    DOMAIN,
-    DRIVING_SIDE_CHOICES,
-    ORIENTATION_CHOICES,
-)
+from .const import CONF_ADDRESS, DOMAIN
 
 MANUAL_ENTRY_VALUE = "__manual__"
-
-
-def _parameters_schema(defaults: dict[str, Any]) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required(
-                CONF_WIDTH_INCHES, default=defaults.get(CONF_WIDTH_INCHES, DEFAULT_WIDTH_INCHES)
-            ): vol.Coerce(int),
-            vol.Required(
-                CONF_LENGTH_INCHES,
-                default=defaults.get(CONF_LENGTH_INCHES, DEFAULT_LENGTH_INCHES),
-            ): vol.Coerce(int),
-            vol.Required(
-                CONF_ORIENTATION,
-                default=defaults.get(CONF_ORIENTATION, DEFAULT_ORIENTATION),
-            ): vol.In(ORIENTATION_CHOICES),
-            vol.Required(
-                CONF_DRIVING_SIDE,
-                default=defaults.get(CONF_DRIVING_SIDE, DEFAULT_DRIVING_SIDE),
-            ): vol.In(DRIVING_SIDE_CHOICES),
-        }
-    )
 
 
 class LevelMateProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -59,6 +27,12 @@ class LevelMateProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._discovered_address: str | None = None
         self._discovered_name: str | None = None
         self._discovered_devices: dict[str, str] = {}
+
+    def _create(self, address: str, name: str | None) -> FlowResult:
+        return self.async_create_entry(
+            title=name or f"LevelMate Pro {address}",
+            data={CONF_ADDRESS: address},
+        )
 
     async def async_step_bluetooth(
         self, discovery_info: bluetooth.BluetoothServiceInfoBleak
@@ -74,9 +48,10 @@ class LevelMateProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """Confirm a Bluetooth-discovered device, then ask for parameters."""
+        """Confirm a Bluetooth-discovered device."""
         if user_input is not None:
-            return await self.async_step_parameters()
+            assert self._discovered_address is not None
+            return self._create(self._discovered_address, self._discovered_name)
         return self.async_show_form(
             step_id="confirm",
             data_schema=vol.Schema({}),
@@ -86,17 +61,10 @@ class LevelMateProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """
-        Handle a manually-started flow.
+        """Pick the device from nearby Bluetooth devices, or enter its address.
 
-        The LevelMate Pro does not appear to advertise its custom AA10
-        service UUID in the BLE advertisement packet itself (that's only
-        visible after connecting and discovering GATT services), so we
-        cannot filter nearby devices by service UUID here the way most
-        Bluetooth integrations do. Instead: list every nearby connectable
-        device (so you can pick yours by address/name), AND offer a manual
-        "enter the address yourself" option, since you likely already know
-        it from earlier BLE captures.
+        The LevelMate Pro does not appear to advertise its AA10 service, so the
+        list cannot be filtered: every nearby connectable device is shown.
         """
         if user_input is not None:
             address = user_input[CONF_ADDRESS]
@@ -104,8 +72,8 @@ class LevelMateProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return await self.async_step_manual_address()
             await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
-            self._discovered_address = address
-            return await self.async_step_parameters()
+            label = self._discovered_devices.get(address, address)
+            return self._create(address, label.rsplit(" (", 1)[0])
 
         current_addresses = self._async_current_ids()
         for discovery_info in bluetooth.async_discovered_service_info(
@@ -128,84 +96,21 @@ class LevelMateProConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_manual_address(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
-        """
-        Manual address entry fallback - for when the device isn't showing up
-        in the list above (e.g. it's currently asleep; the LevelMate Pro
-        powers down its radio after a period of no motion and only wakes on
-        motion or a power-switch cycle - try moving the RV slightly or
-        cycling its physical on/off switch, then retry setup).
-        """
+        """Manual address entry, for when the device is not in the list."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            address = user_input[CONF_ADDRESS].upper()
+            address = user_input[CONF_ADDRESS].strip().upper()
             await self.async_set_unique_id(address, raise_on_progress=False)
             self._abort_if_unique_id_configured()
-            ble_device = bluetooth.async_ble_device_from_address(
+            if bluetooth.async_ble_device_from_address(
                 self.hass, address, connectable=True
-            )
-            if ble_device is None:
+            ) is None:
                 errors["base"] = "device_not_found"
             else:
-                self._discovered_address = address
-                return await self.async_step_parameters()
+                return self._create(address, None)
 
         return self.async_show_form(
             step_id="manual_address",
             data_schema=vol.Schema({vol.Required(CONF_ADDRESS): str}),
             errors=errors,
-        )
-
-    async def async_step_parameters(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Ask for width, length, mounting orientation, and driving side."""
-        if user_input is not None:
-            address = self._discovered_address
-            assert address is not None
-            name = self._discovered_devices.get(address, self._discovered_name or address)
-            return self.async_create_entry(
-                title=name,
-                data={
-                    CONF_ADDRESS: address,
-                    CONF_WIDTH_INCHES: user_input[CONF_WIDTH_INCHES],
-                    CONF_LENGTH_INCHES: user_input[CONF_LENGTH_INCHES],
-                    CONF_ORIENTATION: user_input[CONF_ORIENTATION],
-                    CONF_DRIVING_SIDE: user_input[CONF_DRIVING_SIDE],
-                },
-            )
-
-        return self.async_show_form(
-            step_id="parameters",
-            data_schema=_parameters_schema({}),
-        )
-
-    @staticmethod
-    @callback
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> "LevelMateProOptionsFlow":
-        return LevelMateProOptionsFlow()
-
-
-class LevelMateProOptionsFlow(config_entries.OptionsFlow):
-    """
-    Lets the user change width/length/orientation/driving-side later.
-
-    Deliberately has NO __init__ / self.config_entry assignment: recent Home
-    Assistant versions inject `self.config_entry` automatically, and a
-    custom __init__ that tries to set it manually raises an error (seen as
-    "Config flow could not be loaded: 500 Internal Server Error") on those
-    versions. Just use the inherited `self.config_entry` directly.
-    """
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        current = {**self.config_entry.data, **self.config_entry.options}
-        return self.async_show_form(
-            step_id="init",
-            data_schema=_parameters_schema(current),
         )

@@ -1,21 +1,26 @@
 {
   "domain": "levelmate_pro",
-  "name": "Unofficial LevelMate Pro",
+  "name": "LevelMate Pro (read-only)",
   "bluetooth": [
     {
       "connectable": true,
       "service_uuid": "0000aa10-0000-1000-8000-00805f9b34fb"
     }
-  ], 
+  ],
   "codeowners": [
-    "@timsys512"
+    "@K5PTB"
   ],
   "config_flow": true,
-  "dependencies": ["bluetooth_adapters"],
-  "documentation": "https://github.com/timsys512/home-assistant-levelmate",
+  "dependencies": [
+    "bluetooth"
+  ],
+  "documentation": "https://github.com/K5PTB/home-assistant-levelmate",
   "integration_type": "device",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/timsys512/home-assistant-levelmate/issues",
-  "requirements": ["bleak>=0.21.0", "bleak-retry-connector>=3.4.0"],
-  "version": "0.1.0"
+  "issue_tracker": "https://github.com/K5PTB/home-assistant-levelmate/issues",
+  "requirements": [
+    "bleak>=0.21.0",
+    "bleak-retry-connector>=3.4.0"
+  ],
+  "version": "0.2.0"
 }

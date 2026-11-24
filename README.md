@@ -1,3 +1,33 @@
+# LevelMate Pro for Home Assistant — read-only, connect-on-demand fork
+
+This is a fork of [timsys512/home-assistant-levelmate](https://github.com/timsys512/home-assistant-levelmate)
+(MIT). The protocol work — characteristic UUIDs, scaling and the corner
+calculation — is entirely upstream's. This fork changes how the integration
+uses the device:
+
+- **Read-only.** It never writes to the LevelMate Pro. Upstream writes RV
+  width, length and mounting orientation (with a time-based password) on every
+  connection; this fork removes all of that, along with the setup questions for
+  those values. The device keeps the settings made with the official app, and
+  the firmware uses its stored orientation to produce the readings.
+- **Connect on demand.** The LevelMate Pro accepts one Bluetooth connection at
+  a time. A **Connection** switch, off after every Home Assistant start, decides
+  whether Home Assistant uses it. While it is off the official phone app works
+  as usual. Turn it on to see the corners in Home Assistant; it connects as
+  soon as the device is awake and reconnects after a drop. If the device is
+  switched off or asleep for 5 minutes, the switch turns itself off again.
+- **Robust setup.** Setup never connects, so it no longer fails when the
+  device is off or asleep. Readings are cleared whenever the connection starts
+  or ends, so a value from an earlier connection is never shown as live.
+- The ESP32 display files from upstream are not included.
+
+Tests: `pip install pytest-homeassistant-custom-component`, then `pytest`. The
+fake Bluetooth client fails any test in which the integration writes.
+
+---
+
+## Upstream README
+
 [![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=timsys512&repository=home-assistant-levelmate&category=integration)
 
 # Unofficial LevelMate Pro - Home Assistant Custom Integration
